@@ -134,6 +134,10 @@ See `.env.example` for all settings. `API_KEY` must be at least 32 characters fo
 
 Bug reports, documentation improvements, tests, and focused pull requests are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+
 ## Maintainer
 
 Created and maintained by [TannishtoDasGupta](https://github.com/TannishtoDasGupta).

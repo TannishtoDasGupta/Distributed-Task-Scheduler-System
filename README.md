@@ -48,7 +48,7 @@ Redis broker ---> Celery worker
    cp .env.example .env
    ```
 
-   Change the example database password before exposing the service beyond your local machine. Do not commit `.env`.
+   Change the example database password even for shared development environments. The Compose ports are bound to `127.0.0.1` for local use; do not expose the API publicly without authentication and authorisation. Do not commit `.env`.
 
 3. Build and start the services:
 
@@ -56,7 +56,7 @@ Redis broker ---> Celery worker
    docker compose up --build
    ```
 
-4. Open the API documentation at [http://localhost:8000/docs](http://localhost:8000/docs). The health endpoint is [http://localhost:8000/health](http://localhost:8000/health).
+4. Open the API documentation at [http://localhost:8000/docs](http://localhost:8000/docs). The liveness endpoint is [http://localhost:8000/health](http://localhost:8000/health); the readiness endpoint is [http://localhost:8000/ready](http://localhost:8000/ready) and checks PostgreSQL connectivity.
 
 Stop the services with `docker compose down`. To also delete the local PostgreSQL volume, use `docker compose down -v` (this permanently deletes its stored data).
 
@@ -99,7 +99,7 @@ Example: concatenate strings.
 }
 ```
 
-The API returns a task ID. Processing happens asynchronously; poll the status endpoint to see the current state.
+The API returns HTTP `202 Accepted` and a task ID. Processing happens asynchronously; poll the status endpoint to see the current state. If the broker is unavailable, the API returns HTTP `503` and marks the persisted task as `FAILED`.
 
 ### Get a task
 
@@ -131,7 +131,7 @@ pip install -r requirements.txt
 pytest -q
 ```
 
-The unit tests cover the built-in task handlers and do not require a running database or Redis instance.
+The unit tests cover task handlers and request-schema validation; they do not require a running database or Redis instance.
 
 ## Configuration
 
@@ -143,10 +143,10 @@ Add new task types in `app/workers/handlers.py` and cover them with unit tests i
 
 ## Security and limitations
 
-- The API currently has no authentication or authorisation. Do not expose it publicly without adding an appropriate access-control layer.
+- The API currently has no authentication or authorisation. Compose binds published ports to localhost, but this is not an access-control layer; do not expose the API publicly without adding authentication and authorisation.
 - Use strong, unique database credentials outside local development.
 - Restrict network access to PostgreSQL and Redis in production.
-- Add migrations before evolving the database schema in deployed environments.
+- The starter creates tables at application startup. Add and run Alembic migrations before evolving the database schema in deployed environments.
 - Task payloads and results are stored in PostgreSQL; do not submit credentials, patient data, or other sensitive information.
 - Delivery guarantees, idempotency, rate limiting, observability, and production deployment hardening require further work.
 

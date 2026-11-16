@@ -127,7 +127,7 @@ See `.env.example` for all settings. `API_KEY` must be at least 32 characters fo
 - Compose binds published ports to localhost. Do not expose the API publicly without TLS, stronger identity/access controls, rate limiting, and network restrictions.
 - Task payloads and results are stored in PostgreSQL; never submit credentials, patient data, or other sensitive information.
 - Retry behaviour is configured for transient worker exceptions. End-to-end delivery guarantees, idempotency, dead-letter handling, and worker crash recovery still need dedicated design and testing.
-- CI exercises unit tests, PostgreSQL persistence, and Alembic upgrade/downgrade. A full live Docker Compose exercise with Redis and a running Celery worker has not been performed here.
+- CI exercises unit tests, PostgreSQL persistence, Alembic upgrade/downgrade, and an end-to-end task dispatched through a real Redis broker to a running Celery worker, with the result verified in PostgreSQL. A full local Docker Compose smoke test is still a separate manual check.
 - Monitoring, structured metrics, backup/restore drills, and production deployment hardening remain future work.
 
 ## Contributing

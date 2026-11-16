@@ -11,9 +11,9 @@ Thank you for considering a contribution.
 ## Development setup
 
 1. Fork and clone the repository.
-2. Create and activate a Python virtual environment.
-3. Install dependencies with `pip install -r requirements.txt`.
-4. Run the unit tests with `pytest -q`.
+2. Create and activate a Python 3.11 virtual environment.
+3. Install dependencies with `python -m pip install -r requirements.txt`.
+4. Run the unit tests from the repository root with `python -m pytest -q`.
 
 ## Pull requests
 

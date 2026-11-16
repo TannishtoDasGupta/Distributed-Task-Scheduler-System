@@ -57,6 +57,7 @@ All `/api/tasks` endpoints require the `X-API-Key` header.
 
 ```http
 X-API-Key: your-generated-secret
+Idempotency-Key: order-123-attempt-1
 Content-Type: application/json
 ```
 
@@ -66,6 +67,8 @@ Content-Type: application/json
   "payload": {"message": "hello"}
 }
 ```
+
+An optional `Idempotency-Key` (1-128 characters) makes client retries safe: repeating the same key and same task input returns the original task rather than enqueueing it again. Reusing the key with a different task type or payload returns HTTP `409 Conflict`. Keys are unique across the task table; clients should use a fresh key for each logically new submission.
 
 Supported task types:
 
@@ -115,7 +118,7 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-Set the required PostgreSQL and Celery environment variables (see `.env.example`), then run unit tests with `pytest -q`. The database integration test requires a reachable PostgreSQL instance. GitHub Actions provisions a disposable PostgreSQL service, applies migrations, runs the tests, and verifies downgrade.
+Set the required PostgreSQL and Celery environment variables (see `.env.example`), then run unit tests with `pytest -q`. The database integration test requires a reachable PostgreSQL instance. GitHub Actions provisions disposable PostgreSQL and Redis services, applies migrations, runs tests, starts a real Celery worker, and verifies end-to-end task execution and migration downgrade.
 
 ## Configuration
 
@@ -126,8 +129,9 @@ See `.env.example` for all settings. `API_KEY` must be at least 32 characters fo
 - API task routes use a shared API key; this is basic service authentication, not user identity, role-based access control, or per-user authorization. Rotate the key and keep it in a secret manager outside local development.
 - Compose binds published ports to localhost. Do not expose the API publicly without TLS, stronger identity/access controls, rate limiting, and network restrictions.
 - Task payloads and results are stored in PostgreSQL; never submit credentials, patient data, or other sensitive information.
-- Retry behaviour is configured for transient worker exceptions. End-to-end delivery guarantees, idempotency, dead-letter handling, and worker crash recovery still need dedicated design and testing.
-- CI exercises unit tests, PostgreSQL persistence, Alembic upgrade/downgrade, and an end-to-end task dispatched through a real Redis broker to a running Celery worker, with the result verified in PostgreSQL. A full local Docker Compose smoke test is still a separate manual check.
+- Optional idempotency keys prevent duplicate submissions caused by client retries. They do not make arbitrary task handlers exactly-once; handlers must still be designed to tolerate worker redelivery and partial external side effects.
+- Retry behaviour is configured for transient worker exceptions. Durable dead-letter routing, stronger delivery guarantees, and worker crash recovery still need dedicated design and testing.
+- CI exercises unit tests, PostgreSQL persistence, Alembic upgrade/downgrade, and an end-to-end task dispatched through a real Redis broker to a running Celery worker, with the result verified in PostgreSQL. A full local Docker Compose smoke test is still a separate check.
 - Monitoring, structured metrics, backup/restore drills, and production deployment hardening remain future work.
 
 ## Contributing

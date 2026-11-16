@@ -19,4 +19,9 @@ celery_app.conf.update(
     task_track_started=True,
     worker_prefetch_multiplier=1,
     task_acks_late=True,
+    task_reject_on_worker_lost=True,
+    broker_connection_retry_on_startup=True,
+    task_publish_retry=True,
+    task_default_delivery_mode="persistent",
+    broker_transport_options={"visibility_timeout": 3600},
 )

@@ -2,12 +2,12 @@
 
 A containerised backend starter for submitting, processing, and monitoring asynchronous tasks with **FastAPI**, **Celery**, **Redis**, and **PostgreSQL**.
 
-> **Project status:** early-stage project. The built-in task handlers currently support `echo`, `sum`, and `concat`. This is an actively developed starter, not a production-deployed scheduling platform.
+> **Project status:** early-stage project. Built-in handlers support `echo`, `sum`, and `concat`. This repository provides a deployable API/worker stack, not a hosted public website or a production-certified scheduling platform.
 
 ## Architecture
 
 - **FastAPI** exposes authenticated task submission and status APIs.
-- **PostgreSQL** stores task metadata, payloads, results, and retry counts.
+- **PostgreSQL** stores task metadata, payloads, results, idempotency keys, and retry counts.
 - **Redis** acts as the Celery message broker and result backend.
 - **Celery worker** executes registered task handlers asynchronously.
 - **Alembic** manages versioned database schema migrations.
@@ -16,36 +16,24 @@ A containerised backend starter for submitting, processing, and monitoring async
 ## Requirements
 
 - Python 3.11+
-- Docker Engine and Docker Compose plugin (for containerised use)
+- Docker Engine and Docker Compose plugin
 
-## Quick start (Docker)
+## Quick start
 
-1. Clone the repository and enter its directory:
+```bash
+git clone https://github.com/TannishtoDasGupta/Distributed-Task-Scheduler-System.git
+cd Distributed-Task-Scheduler-System
+cp .env.example .env
+```
 
-   ```bash
-   git clone https://github.com/TannishtoDasGupta/Distributed-Task-Scheduler-System.git
-   cd Distributed-Task-Scheduler-System
-   ```
+Generate strong secrets (at least 32 characters) and set `API_KEY` and `POSTGRES_PASSWORD` in `.env`. Never commit the real `.env` file.
 
-2. Create a local environment file and replace both example secrets:
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+docker compose up --build
+```
 
-   ```bash
-   cp .env.example .env
-   ```
-
-   Generate a strong API key of at least 32 characters. Keep `.env` private and never commit it. Compose publishes API, PostgreSQL, and Redis ports only on localhost.
-
-3. Build and start:
-
-   ```bash
-   docker compose up --build
-   ```
-
-   The API container applies pending Alembic migrations before starting FastAPI. Open [http://localhost:8000/docs](http://localhost:8000/docs). In Swagger, click **Authorize** and enter the API key as the `X-API-Key` value.
-
-4. Health checks: `GET /health` is liveness; `GET /ready` checks PostgreSQL connectivity. These endpoints do not require an API key.
-
-Stop with `docker compose down`. To also delete the local PostgreSQL volume, use `docker compose down -v` (this permanently deletes its stored data).
+Open [http://localhost:8000/docs](http://localhost:8000/docs). In Swagger, click **Authorize** and enter your secret as `X-API-Key`. The API, PostgreSQL, and Redis host ports are bound to localhost only. Stop with `docker compose down`; `docker compose down -v` also deletes the local database volume.
 
 ## API
 
@@ -53,94 +41,64 @@ All `/api/tasks` endpoints require the `X-API-Key` header.
 
 ### Submit a task
 
-`POST /api/tasks/` returns HTTP `202 Accepted` and a task ID. Example:
+`POST /api/tasks/` returns HTTP `202 Accepted`.
 
 ```http
 X-API-Key: your-generated-secret
-Idempotency-Key: order-123-attempt-1
+Idempotency-Key: unique-request-123
 Content-Type: application/json
 ```
 
 ```json
-{
-  "type": "echo",
-  "payload": {"message": "hello"}
-}
+{"type":"sum","payload":{"values":[2,3,5]}}
 ```
 
-An optional `Idempotency-Key` (1-128 characters) makes client retries safe: repeating the same key and same task input returns the original task rather than enqueueing it again. Reusing the key with a different task type or payload returns HTTP `409 Conflict`. Keys are unique across the task table; clients should use a fresh key for each logically new submission.
+The optional `Idempotency-Key` (1-128 characters) makes client retries safe: repeating the same key and identical request returns the original task. Reusing the key with different input returns HTTP `409 Conflict`. Use a new key for each logically new submission.
 
-Supported task types:
+Supported task types: `echo`, `sum`, and `concat`.
 
-- `echo`: returns the supplied payload.
-- `sum`: adds a non-empty list of numeric values.
-- `concat`: joins a list of strings.
+- `GET /api/tasks/{task_id}` — retrieve task status.
+- `GET /api/tasks/` — list up to 100 recent tasks.
+- `GET /health` — liveness.
+- `GET /ready` — PostgreSQL readiness.
 
-If the broker is unavailable, the API returns HTTP `503` and marks the persisted task as `FAILED`.
+## Deployment preparation
 
-### Get a task
+This is an API service, not a browser-based product website. You can self-host the complete stack on a Docker-capable VPS or private server:
 
-`GET /api/tasks/{task_id}`
+1. Provision a supported Linux host and install Docker Engine plus Compose.
+2. Clone this repository and create a private `.env` file.
+3. Set unique random `API_KEY` and `POSTGRES_PASSWORD` values, plus broker/database URLs appropriate for the Compose network.
+4. Keep API, Redis, and PostgreSQL ports private. Put a TLS reverse proxy (for example Caddy or Nginx) in front of the API and expose only HTTPS.
+5. Start with `docker compose up -d --build`; the API applies Alembic migrations before startup.
+6. Verify `/health`, `/ready`, submit a test task, and verify its result.
+7. Configure encrypted database backups, restore testing, log retention, host monitoring, and key rotation before inviting external users.
 
-### List recent tasks
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the deployment checklist and environment variables. Do not expose Redis or PostgreSQL to the public internet.
 
-`GET /api/tasks/` returns at most the 100 most recently created tasks.
-
-### Task states
-
-- `PENDING`: accepted and waiting for a worker.
-- `PROCESSING`: a worker is executing the task.
-- `RETRY`: a retry has been scheduled after a processing error.
-- `SUCCESS`: completed successfully.
-- `FAILED`: execution failed permanently.
-
-## Database migrations
-
-Schema changes are managed with Alembic; application startup does not create or mutate tables automatically.
+## Migrations and tests
 
 ```bash
-alembic upgrade head       # apply pending migrations
-alembic current            # show current revision
-alembic downgrade -1       # roll back one revision
-alembic revision --autogenerate -m "describe schema change"
+alembic upgrade head
+alembic current
+alembic downgrade -1
+pytest -q
 ```
 
-Review autogenerated migrations before committing them. Back up persistent data before applying migrations to an important database.
-
-## Run tests locally
-
-Create a virtual environment and install dependencies:
-
-```bash
-python -m venv .venv
-# Windows PowerShell: .venv\\Scripts\\Activate.ps1
-# macOS/Linux: source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-Set the required PostgreSQL and Celery environment variables (see `.env.example`), then run unit tests with `pytest -q`. The database integration test requires a reachable PostgreSQL instance. GitHub Actions provisions disposable PostgreSQL and Redis services, applies migrations, runs tests, starts a real Celery worker, and verifies end-to-end task execution and migration downgrade.
-
-## Configuration
-
-See `.env.example` for all settings. `API_KEY` must be at least 32 characters for the API to accept task requests. If it is missing, task routes fail closed with HTTP `503`; incorrect or missing request keys return HTTP `401`.
+CI provisions disposable PostgreSQL and Redis, applies migrations, runs tests, starts a real Celery worker, verifies Redis-to-Celery-to-PostgreSQL execution, and checks migration downgrade.
 
 ## Security and known limitations
 
-- API task routes use a shared API key; this is basic service authentication, not user identity, role-based access control, or per-user authorization. Rotate the key and keep it in a secret manager outside local development.
-- Compose binds published ports to localhost. Do not expose the API publicly without TLS, stronger identity/access controls, rate limiting, and network restrictions.
-- Task payloads and results are stored in PostgreSQL; never submit credentials, patient data, or other sensitive information.
-- Optional idempotency keys prevent duplicate submissions caused by client retries. They do not make arbitrary task handlers exactly-once; handlers must still be designed to tolerate worker redelivery and partial external side effects.
-- Retry behaviour is configured for transient worker exceptions. Durable dead-letter routing, stronger delivery guarantees, and worker crash recovery still need dedicated design and testing.
-- CI exercises unit tests, PostgreSQL persistence, Alembic upgrade/downgrade, and an end-to-end task dispatched through a real Redis broker to a running Celery worker, with the result verified in PostgreSQL. A full local Docker Compose smoke test is still a separate check.
-- Monitoring, structured metrics, backup/restore drills, and production deployment hardening remain future work.
+- API task routes use a shared API key. This is service authentication, not user accounts, role-based access control, or per-user quotas.
+- Compose publishes ports on localhost for development. A public deployment requires TLS, network restrictions, rate limiting, and an appropriate secret-management process.
+- Task payloads/results are stored in PostgreSQL; never submit credentials, patient data, or other sensitive information.
+- Celery uses late acknowledgements and worker-loss rejection to improve redelivery behaviour. Redelivery can still cause duplicate execution; task handlers with external side effects must be idempotent.
+- Idempotency keys protect client resubmission, but do not provide exactly-once execution. Durable outbox processing, dead-letter workflows, and crash-recovery drills remain future work.
+- Monitoring/metrics, backup/restore drills, rate limiting, and a full local Docker Compose smoke test remain to be completed before production use.
 
-## Contributing
+## Contributing and license
 
-Bug reports, documentation improvements, tests, and focused pull requests are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
-
-## License
-
-This project is licensed under the [MIT License](LICENSE).
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md). MIT licensed; see [LICENSE](LICENSE).
 
 ## Maintainer
 

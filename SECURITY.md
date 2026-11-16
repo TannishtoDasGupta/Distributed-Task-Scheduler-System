@@ -2,16 +2,17 @@
 
 ## Reporting a vulnerability
 
-Please do not disclose security vulnerabilities in public issues.
-
-Report suspected vulnerabilities privately to the repository maintainer through the contact method listed on the maintainer's GitHub profile. Include the affected component, impact, reproduction steps, and any suggested mitigation. Avoid including real secrets or personal data in the report.
+Please do not disclose security vulnerabilities in public issues. Report suspected vulnerabilities privately through the contact method on the repository maintainer's GitHub profile. Include the affected component, impact, reproduction steps, and suggested mitigation. Do not include real secrets or personal data.
 
 ## Deployment guidance
 
-This project is an early-stage starter and is not yet hardened for public production use.
+This is an early-stage API/worker starter. Before public use:
 
-- Do not expose the API publicly without authentication and authorisation.
-- Use unique, strong credentials and keep the local `.env` file out of version control.
-- Restrict direct network access to Redis and PostgreSQL.
-- Keep base images and Python dependencies updated.
-- Do not place credentials, patient information, or other sensitive data in task payloads.
+- Set a unique API key of at least 32 random characters and rotate it if exposed.
+- Use unique database credentials and store all secrets outside Git.
+- Put the API behind HTTPS/TLS and rate limiting.
+- Restrict Redis and PostgreSQL to the private application network.
+- Back up PostgreSQL and test restoration.
+- Keep Docker base images and Python dependencies updated.
+- Do not submit credentials, patient information, or other sensitive data as task payloads.
+- Remember that worker redelivery may execute a task more than once; make side-effecting handlers idempotent.

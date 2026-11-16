@@ -2,104 +2,78 @@
 
 A containerised backend starter for submitting, processing, and monitoring asynchronous tasks with **FastAPI**, **Celery**, **Redis**, and **PostgreSQL**.
 
-> **Project status:** early-stage project. The built-in task handlers currently support `echo`, `sum`, and `concat`. This is a learning and extension-friendly foundation, not a production-hardened scheduling platform.
+> **Project status:** early-stage project. The built-in task handlers currently support `echo`, `sum`, and `concat`. This is an actively developed starter, not a production-deployed scheduling platform.
 
 ## Architecture
 
-- **FastAPI** exposes the task submission and status APIs.
+- **FastAPI** exposes authenticated task submission and status APIs.
 - **PostgreSQL** stores task metadata, payloads, results, and retry counts.
 - **Redis** acts as the Celery message broker and result backend.
 - **Celery worker** executes registered task handlers asynchronously.
+- **Alembic** manages versioned database schema migrations.
 - **Docker Compose** starts the API, worker, database, and broker.
-
-```text
-Client
-  |
-  v
-FastAPI -----> PostgreSQL
-  |
-  v
-Redis broker ---> Celery worker
-                       |
-                       v
-                  Task handler
-                       |
-                       v
-                  PostgreSQL
-```
 
 ## Requirements
 
-- Docker Engine
-- Docker Compose plugin
+- Python 3.11+
+- Docker Engine and Docker Compose plugin (for containerised use)
 
 ## Quick start (Docker)
 
-1. Clone the repository:
+1. Clone the repository and enter its directory:
 
    ```bash
    git clone https://github.com/TannishtoDasGupta/Distributed-Task-Scheduler-System.git
    cd Distributed-Task-Scheduler-System
    ```
 
-2. Create your local environment file:
+2. Create a local environment file and replace both example secrets:
 
    ```bash
    cp .env.example .env
    ```
 
-   Change the example database password even for shared development environments. The Compose ports are bound to `127.0.0.1` for local use; do not expose the API publicly without authentication and authorisation. Do not commit `.env`.
+   Generate a strong API key of at least 32 characters. Keep `.env` private and never commit it. Compose publishes API, PostgreSQL, and Redis ports only on localhost.
 
-3. Build and start the services:
+3. Build and start:
 
    ```bash
    docker compose up --build
    ```
 
-4. Open the API documentation at [http://localhost:8000/docs](http://localhost:8000/docs). The liveness endpoint is [http://localhost:8000/health](http://localhost:8000/health); the readiness endpoint is [http://localhost:8000/ready](http://localhost:8000/ready) and checks PostgreSQL connectivity.
+   The API container applies pending Alembic migrations before starting FastAPI. Open [http://localhost:8000/docs](http://localhost:8000/docs). In Swagger, click **Authorize** and enter the API key as the `X-API-Key` value.
 
-Stop the services with `docker compose down`. To also delete the local PostgreSQL volume, use `docker compose down -v` (this permanently deletes its stored data).
+4. Health checks: `GET /health` is liveness; `GET /ready` checks PostgreSQL connectivity. These endpoints do not require an API key.
+
+Stop with `docker compose down`. To also delete the local PostgreSQL volume, use `docker compose down -v` (this permanently deletes its stored data).
 
 ## API
 
+All `/api/tasks` endpoints require the `X-API-Key` header.
+
 ### Submit a task
 
-`POST /api/tasks/`
+`POST /api/tasks/` returns HTTP `202 Accepted` and a task ID. Example:
 
-Example: echo a JSON payload.
+```http
+X-API-Key: your-generated-secret
+Content-Type: application/json
+```
 
 ```json
 {
   "type": "echo",
-  "payload": {
-    "message": "hello"
-  }
+  "payload": {"message": "hello"}
 }
 ```
 
-Example: add numbers.
+Supported task types:
 
-```json
-{
-  "type": "sum",
-  "payload": {
-    "values": [10, 20, 30]
-  }
-}
-```
+- `echo`: returns the supplied payload.
+- `sum`: adds a non-empty list of numeric values.
+- `concat`: joins a list of strings.
 
-Example: concatenate strings.
-
-```json
-{
-  "type": "concat",
-  "payload": {
-    "values": ["distributed", "-", "tasks"]
-  }
-}
-```
-
-The API returns HTTP `202 Accepted` and a task ID. Processing happens asynchronously; poll the status endpoint to see the current state. If the broker is unavailable, the API returns HTTP `503` and marks the persisted task as `FAILED`.
+If the broker is unavailable, the API returns HTTP `503` and marks the persisted task as `FAILED`.
 
 ### Get a task
 
@@ -107,9 +81,7 @@ The API returns HTTP `202 Accepted` and a task ID. Processing happens asynchrono
 
 ### List recent tasks
 
-`GET /api/tasks/`
-
-The list endpoint returns at most the 100 most recently created tasks.
+`GET /api/tasks/` returns at most the 100 most recently created tasks.
 
 ### Task states
 
@@ -119,36 +91,44 @@ The list endpoint returns at most the 100 most recently created tasks.
 - `SUCCESS`: completed successfully.
 - `FAILED`: execution failed permanently.
 
+## Database migrations
+
+Schema changes are managed with Alembic; application startup does not create or mutate tables automatically.
+
+```bash
+alembic upgrade head       # apply pending migrations
+alembic current            # show current revision
+alembic downgrade -1       # roll back one revision
+alembic revision --autogenerate -m "describe schema change"
+```
+
+Review autogenerated migrations before committing them. Back up persistent data before applying migrations to an important database.
+
 ## Run tests locally
 
-Create and activate a virtual environment, install dependencies, then run the unit tests:
+Create a virtual environment and install dependencies:
 
 ```bash
 python -m venv .venv
-# Windows PowerShell: .venv\Scripts\Activate.ps1
+# Windows PowerShell: .venv\\Scripts\\Activate.ps1
 # macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
-pytest -q
 ```
 
-The unit tests cover task handlers and request-schema validation; they do not require a running database or Redis instance.
+Set the required PostgreSQL and Celery environment variables (see `.env.example`), then run unit tests with `pytest -q`. The database integration test requires a reachable PostgreSQL instance. GitHub Actions provisions a disposable PostgreSQL service, applies migrations, runs the tests, and verifies downgrade.
 
 ## Configuration
 
-Copy `.env.example` to `.env`. The settings cover PostgreSQL connection details, Redis/Celery URLs, and the maximum number of task retries. Environment variables supplied by the deployment environment take precedence over the file.
+See `.env.example` for all settings. `API_KEY` must be at least 32 characters for the API to accept task requests. If it is missing, task routes fail closed with HTTP `503`; incorrect or missing request keys return HTTP `401`.
 
-## Extending the system
+## Security and known limitations
 
-Add new task types in `app/workers/handlers.py` and cover them with unit tests in `tests/`. Keep task handlers deterministic where possible, validate their input, and avoid placing secrets or sensitive data in task payloads.
-
-## Security and limitations
-
-- The API currently has no authentication or authorisation. Compose binds published ports to localhost, but this is not an access-control layer; do not expose the API publicly without adding authentication and authorisation.
-- Use strong, unique database credentials outside local development.
-- Restrict network access to PostgreSQL and Redis in production.
-- The starter creates tables at application startup. Add and run Alembic migrations before evolving the database schema in deployed environments.
-- Task payloads and results are stored in PostgreSQL; do not submit credentials, patient data, or other sensitive information.
-- Delivery guarantees, idempotency, rate limiting, observability, and production deployment hardening require further work.
+- API task routes use a shared API key; this is basic service authentication, not user identity, role-based access control, or per-user authorization. Rotate the key and keep it in a secret manager outside local development.
+- Compose binds published ports to localhost. Do not expose the API publicly without TLS, stronger identity/access controls, rate limiting, and network restrictions.
+- Task payloads and results are stored in PostgreSQL; never submit credentials, patient data, or other sensitive information.
+- Retry behaviour is configured for transient worker exceptions. End-to-end delivery guarantees, idempotency, dead-letter handling, and worker crash recovery still need dedicated design and testing.
+- CI exercises unit tests, PostgreSQL persistence, and Alembic upgrade/downgrade. A full live Docker Compose exercise with Redis and a running Celery worker has not been performed here.
+- Monitoring, structured metrics, backup/restore drills, and production deployment hardening remain future work.
 
 ## Contributing
 

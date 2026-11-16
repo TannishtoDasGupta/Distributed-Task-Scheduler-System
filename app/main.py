@@ -1,24 +1,21 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from sqlalchemy import text
 
-from .database import Base, engine
+from .database import engine
 from .routes import task_routes
 from .utils.logger import logger
 
 app = FastAPI(
     title="Distributed Task Scheduler",
-    description="Submit, execute, and monitor asynchronous tasks.",
-    version="0.1.0",
+    description="Submit, execute, and monitor asynchronous tasks. Task endpoints require an API key.",
+    version="0.2.0",
 )
 app.include_router(task_routes.router, prefix="/api/tasks", tags=["tasks"])
 
 
 @app.on_event("startup")
 def startup_event():
-    # Compose waits for PostgreSQL to become healthy before starting the API.
-    # create_all is suitable for this starter; use Alembic migrations for
-    # controlled schema changes in deployed environments.
-    Base.metadata.create_all(bind=engine)
+    # Database schema is managed explicitly through Alembic migrations.
     logger.info("Application startup completed")
 
 
@@ -30,13 +27,11 @@ def health():
 
 @app.get("/ready", tags=["health"])
 def readiness():
-    """Readiness check: confirms PostgreSQL is reachable."""
+    """Readiness check: confirms that PostgreSQL is reachable."""
     try:
         with engine.connect() as connection:
             connection.execute(text("SELECT 1"))
-    except Exception:
+    except Exception as exc:
         logger.exception("Readiness check failed: database unavailable")
-        from fastapi import HTTPException
-
-        raise HTTPException(status_code=503, detail="Database unavailable")
+        raise HTTPException(status_code=503, detail="Database unavailable") from exc
     return {"status": "ready"}

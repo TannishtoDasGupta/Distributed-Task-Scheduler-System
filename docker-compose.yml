@@ -2,14 +2,12 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:6379:6379"
+    ports: ["127.0.0.1:6379:6379"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
-
   db:
     image: postgres:15-alpine
     restart: unless-stopped
@@ -17,23 +15,21 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-    ports:
-      - "127.0.0.1:5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
+    ports: ["127.0.0.1:5432:5432"]
+    volumes: [postgres_data:/var/lib/postgresql/data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 3s
       retries: 10
-
   web:
     build: .
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
     restart: unless-stopped
     environment:
       APP_HOST: 0.0.0.0
       APP_PORT: 8000
+      API_KEY: ${API_KEY:?Set API_KEY in .env (minimum 32 characters)}
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
       POSTGRES_USER: ${POSTGRES_USER}
@@ -43,20 +39,16 @@ services:
       REDIS_PORT: 6379
       CELERY_BROKER_URL: ${CELERY_BROKER_URL}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
-    ports:
-      - "127.0.0.1:8000:8000"
+    ports: ["127.0.0.1:8000:8000"]
     depends_on:
-      redis:
-        condition: service_healthy
-      db:
-        condition: service_healthy
+      redis: {condition: service_healthy}
+      db: {condition: service_healthy}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3)"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 15s
-
   worker:
     build: .
     command: celery -A app.workers.celery_worker.celery_app worker --loglevel=info --concurrency=2
@@ -70,10 +62,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     depends_on:
-      redis:
-        condition: service_healthy
-      db:
-        condition: service_healthy
-
+      redis: {condition: service_healthy}
+      db: {condition: service_healthy}
 volumes:
   postgres_data:

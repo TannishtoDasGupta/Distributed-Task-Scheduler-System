@@ -1,13 +1,13 @@
 name: Tests
 on:
   push:
-    branches: [main, "docs/**", "hardening/**"]
+    branches: [main, "docs/**", "hardening/**", "test/**"]
   pull_request:
     branches: [main]
 permissions:
   contents: read
 jobs:
-  unit-and-database-tests:
+  unit-database-and-worker-tests:
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -20,6 +20,12 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U dtss_user -d dtss_test_db"
           --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
     env:
       API_KEY: ci-test-api-key-that-is-at-least-32-chars
       POSTGRES_USER: dtss_user
@@ -41,5 +47,20 @@ jobs:
         run: alembic upgrade head
       - name: Run unit and database integration tests
         run: PYTHONPATH=. pytest -q
+      - name: Start a real Celery worker
+        run: celery -A app.workers.celery_worker.celery_app worker --detach --pidfile=/tmp/dtss-worker.pid --logfile=/tmp/dtss-worker.log --loglevel=INFO --concurrency=1
+      - name: Verify Redis-to-Celery-to-PostgreSQL task execution
+        env:
+          RUN_CELERY_INTEGRATION: "1"
+        run: PYTHONPATH=. pytest -q tests/test_celery_worker_integration.py
+      - name: Show worker log on failure
+        if: failure()
+        run: cat /tmp/dtss-worker.log || true
+      - name: Stop Celery worker
+        if: always()
+        run: |
+          if [ -f /tmp/dtss-worker.pid ]; then
+            kill "$(cat /tmp/dtss-worker.pid)" || true
+          fi
       - name: Verify migration downgrade
         run: alembic downgrade base
